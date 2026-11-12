@@ -10,6 +10,7 @@ use crate::backend::UploadedMedia;
 use crate::backend::media_cache::{Lookup, MediaCache};
 use crate::backend::wire::Character;
 use crate::prompt_box::deck::cover_uv;
+use crate::platform::PickKey;
 use crate::prompt_box::refs::{RefKind, RefMedia, RefStatus};
 use crate::theme;
 use crate::ui::icons::{self, Icon};
@@ -239,6 +240,23 @@ impl CharactersModal {
 
   fn create(&mut self, ui: &mut Ui, cache: &mut MediaCache, actions: &mut Vec<CharactersAction>) {
     self.header(ui, "New Character", true, actions);
+    // The reference image chosen in the picker (on Android the user comes back from a separate screen).
+    for paths in crate::pages::common::picked_files(PickKey::CharacterImage) {
+      let Some(path) = paths.into_iter().next() else {
+        continue;
+      };
+      match std::fs::read(&path) {
+        Ok(bytes) => {
+          let mut img = RefMedia::uploading(RefKind::Image, None);
+          let key = format!("local://{}", img.id);
+          cache.insert_bytes(ui.ctx(), &key, Arc::from(bytes));
+          img.preview = Some(key);
+          actions.push(CharactersAction::Upload { ref_id: img.id, path });
+          self.image = Some(img);
+        },
+        Err(err) => actions.push(CharactersAction::Toast(format!("Failed to upload {}: {err}", crate::pages::common::file_name(&path)))),
+      }
+    }
     ui.horizontal_top(|ui| {
       ui.vertical(|ui| {
         widgets::hud(ui, "Reference", theme::FAINT);
@@ -260,19 +278,7 @@ impl CharactersModal {
           },
         }
         if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-          if let Some(path) = crate::pages::common::pick_files(&[RefKind::Image], false).into_iter().next() {
-            match std::fs::read(&path) {
-              Ok(bytes) => {
-                let mut img = RefMedia::uploading(RefKind::Image, None);
-                let key = format!("local://{}", img.id);
-                cache.insert_bytes(ui.ctx(), &key, Arc::from(bytes));
-                img.preview = Some(key);
-                actions.push(CharactersAction::Upload { ref_id: img.id, path });
-                self.image = Some(img);
-              },
-              Err(err) => actions.push(CharactersAction::Toast(format!("Failed to upload {}: {err}", crate::pages::common::file_name(&path)))),
-            }
-          }
+          crate::pages::common::pick_files(PickKey::CharacterImage, &[RefKind::Image], false);
         }
       });
       ui.add_space(16.0);

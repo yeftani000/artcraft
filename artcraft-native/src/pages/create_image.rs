@@ -18,6 +18,7 @@ use crate::pages::common::{self, AppRequest, CostState, Env};
 use crate::pages::toolbar;
 use crate::prompt_box::deck::{DeckAction, DeckLimits};
 use crate::prompt_box::model_selector::model_selector;
+use crate::platform::PickKey;
 use crate::prompt_box::refs::{ImageSlot, RefKind, RefMedia, References};
 use crate::prompt_box::{self, DeckMode, PromptBoxAction, PromptBoxProps, PromptBoxState, Slot, editor};
 
@@ -131,6 +132,13 @@ impl CreateImagePage {
     if let Some(n) = picked_count {
       self.settings.count = n;
     }
+    // Files chosen in the picker (on Android the user comes back from a separate screen).
+    for paths in common::picked_files(PickKey::ImageDeck) {
+      let free = max_images.saturating_sub(self.refs.images.len());
+      for path in paths.into_iter().take(free) {
+        common::upload_path(env, &mut self.refs, &path, RefKind::Image, ImageSlot::Reference);
+      }
+    }
     for action in actions {
       self.handle(action, env, model, max_images, provider);
     }
@@ -146,9 +154,7 @@ impl CreateImagePage {
       PromptBoxAction::Deck(deck) => match deck {
         DeckAction::Upload { .. } => {
           let free = max_images.saturating_sub(self.refs.images.len());
-          for path in common::pick_files(&[RefKind::Image], free > 1).into_iter().take(free) {
-            common::upload_path(env, &mut self.refs, &path, RefKind::Image, ImageSlot::Reference);
-          }
+          common::pick_files(PickKey::ImageDeck, &[RefKind::Image], free > 1);
         },
         DeckAction::Library { kind, slot } => {
           env.requests.push(AppRequest::PickFromLibrary { kind, slot, max: max_images.saturating_sub(self.refs.images.len()).max(1), page: MediaKind::Image });

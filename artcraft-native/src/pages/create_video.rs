@@ -20,6 +20,7 @@ use crate::prompt_box::deck::{DeckAction, DeckLimits};
 use crate::prompt_box::editor::{self, MentionItem, MentionKind};
 use crate::prompt_box::model_selector::model_selector;
 use crate::prompt_box::pickers::{self, PickOption, Trigger};
+use crate::platform::PickKey;
 use crate::prompt_box::refs::{ImageSlot, RefKind, RefMedia, References};
 use crate::prompt_box::{self, DeckMode, PromptBoxAction, PromptBoxProps, PromptBoxState, Slot};
 use crate::ui::icons::Icon;
@@ -68,6 +69,8 @@ pub struct CreateVideoPage {
   pub generating: bool,
   box_state: PromptBoxState,
   box_height: f32,
+  /// The slot the file picker was opened for (the choice arrives on a later frame).
+  pick_slot: Option<ImageSlot>,
   /// Which character each mentioned name means, when the user picked one explicitly.
   character_picks: std::collections::HashMap<String, String>,
 }
@@ -158,6 +161,11 @@ impl CreateVideoPage {
     if open_characters {
       env.requests.push(AppRequest::OpenCharacters);
     }
+    // Files chosen in the picker (on Android the user comes back from a separate screen).
+    for paths in common::picked_files(PickKey::VideoDeck) {
+      let slot = self.pick_slot.unwrap_or(ImageSlot::Reference);
+      self.add_files(env, &paths, slot, limits.as_ref());
+    }
     for action in actions {
       self.handle(action, env, model, limits.as_ref());
     }
@@ -173,8 +181,8 @@ impl CreateVideoPage {
       PromptBoxAction::Deck(deck) => match deck {
         DeckAction::Upload { kinds, slot } => {
           let multiple = slot == ImageSlot::Reference;
-          let paths = common::pick_files(&kinds, multiple);
-          self.add_files(env, &paths, slot, limits);
+          self.pick_slot = Some(slot);
+          common::pick_files(PickKey::VideoDeck, &kinds, multiple);
         },
         DeckAction::Library { kind, slot } => {
           let max = match slot {

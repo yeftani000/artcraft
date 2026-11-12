@@ -5,6 +5,13 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+# The app is a library so the same code backs the desktop binary and the Android shared library
+# (`libartcraft_native.so`, loaded by the GameActivity in `android/`).
+[lib]
+name = "artcraft_native"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
 [[bin]]
 name = "artcraft-native"
 path = "src/main.rs"
@@ -23,18 +30,14 @@ tokens.workspace = true
 anyhow.workspace = true
 cookie.workspace = true
 chrono.workspace = true
-directories = "6.0.0"
-eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "accesskit", "wayland", "x11", "persistence", "links"] }
 egui = "0.36"
 enums.workspace = true
 egui_extras = { version = "0.36", default-features = false, features = ["image", "svg"] }
 env_logger.workspace = true
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 log.workspace = true
-open = "5"
 reqwest = { workspace = true, features = ["multipart"] }
 resvg = "0.45"
-rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
 rodio = { version = "0.20", default-features = false, features = ["symphonia-all"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -43,11 +46,26 @@ tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "fs"]
 url.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 
+# Desktop only: window backends, native dialogs, the system clipboard and the Midjourney sign-in
+# webview. None of these exist (or make sense) on Android.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+directories = "6.0.0"
+eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "accesskit", "wayland", "x11", "persistence", "links"] }
+open = "5"
+rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
 # Pasting images from the clipboard (egui's own clipboard support is text only).
 arboard = { version = "3", default-features = false, features = ["image-data"] }
-
 # The Midjourney sign-in window (its login cookies can only be captured inside a browser).
 wry = "0.55"
+
+# Android only: GameActivity gives us a soft keyboard (NativeActivity can't), and JNI reaches the
+# Kotlin side for the file picker, links and saving into the gallery.
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.15"
+eframe = { version = "0.36", default-features = false, features = ["default_fonts", "wgpu", "android-game-activity", "persistence", "links"] }
+jni = "0.21"
+# eframe's `NativeOptions::android_app` is typed with winit's re-export of `AndroidApp`.
+winit = { version = "0.30.13", default-features = false, features = ["android-game-activity", "rwh_06"] }
 
 [dev-dependencies]
 egui_kittest = "0.36"

@@ -83,6 +83,8 @@ pub struct ArtcraftApp {
   view_mode: ViewMode,
   autoplay: bool,
   sidebar_open: bool,
+  /// Whether the window is too narrow for a docked sidebar (phones); it floats over the page then.
+  compact: bool,
   image: CreateImagePage,
   video: CreateVideoPage,
   audio: CreateAudioPage,
@@ -121,7 +123,13 @@ impl ArtcraftApp {
   pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
     theme::apply(&cc.egui_ctx);
     egui_extras::install_image_loaders(&cc.egui_ctx);
+    // Lets the Android file picker wake the UI when the user comes back with a file.
+    crate::platform::install_repaint(cc.egui_ctx.clone());
     let mut saved: Saved = cc.storage.and_then(|s| eframe::get_value(s, STORAGE_KEY)).unwrap_or_default();
+    if crate::platform::IS_ANDROID {
+      // Phones are narrow: start with the sidebar closed.
+      saved.sidebar_open = false;
+    }
     if let Some(page) = std::env::var("ARTCRAFT_PAGE").ok().and_then(|p| Page::from_slug(&p)) {
       saved.page = page;
     }
@@ -132,7 +140,7 @@ impl ArtcraftApp {
       backend.load_models(modality);
     }
     backend.refresh_session();
-    let mut app = Self { cache, player, toasts: Toasts::default(), catalog: Catalog::default(), user: None, credits: None, page: saved.page, enter_to_generate: saved.enter_to_generate, view_mode: saved.view_mode, autoplay: saved.autoplay, sidebar_open: saved.sidebar_open, image: CreateImagePage::new(saved.image), video: CreateVideoPage::new(saved.video), audio: CreateAudioPage::new(saved.audio), library: FeedStore::default(), ratios: RatioCache::default(), prompts: HashMap::new(), prompt_records: HashMap::new(), requested_prompts: HashSet::new(), pending_recreate: None, batch_kinds: HashMap::new(), lightbox: None, picker: None, login: None, characters_modal: None, characters: Vec::new(), pending_characters: Vec::new(), settings_open: false, provider_setup: None, midjourney_login: None, fal_key_input: String::new(), preview: None, requests: Vec::new(), screenshot: ScreenshotRequest::from_env(), next_poll: 0.0, next_credits: CREDITS_INTERVAL, models_retry_at: None, backend };
+    let mut app = Self { cache, player, toasts: Toasts::default(), catalog: Catalog::default(), user: None, credits: None, page: saved.page, enter_to_generate: saved.enter_to_generate, view_mode: saved.view_mode, autoplay: saved.autoplay, sidebar_open: saved.sidebar_open, compact: crate::platform::IS_ANDROID, image: CreateImagePage::new(saved.image), video: CreateVideoPage::new(saved.video), audio: CreateAudioPage::new(saved.audio), library: FeedStore::default(), ratios: RatioCache::default(), prompts: HashMap::new(), prompt_records: HashMap::new(), requested_prompts: HashSet::new(), pending_recreate: None, batch_kinds: HashMap::new(), lightbox: None, picker: None, login: None, characters_modal: None, characters: Vec::new(), pending_characters: Vec::new(), settings_open: false, provider_setup: None, midjourney_login: None, fal_key_input: String::new(), preview: None, requests: Vec::new(), screenshot: ScreenshotRequest::from_env(), next_poll: 0.0, next_credits: CREDITS_INTERVAL, models_retry_at: None, backend };
     app.restore_provider_jobs();
     // Diagnostics: `ARTCRAFT_OPEN=settings` or `midjourney-login` opens that dialog at launch.
     match std::env::var("ARTCRAFT_OPEN").as_deref() {
@@ -341,7 +349,11 @@ impl ArtcraftApp {
           self.lightbox = None;
         }
       },
-      Event::Saved(path) => self.toasts.success(format!("Downloaded {}", common::file_name(&path))),
+      Event::Saved(path) => {
+        crate::platform::after_save(&path);
+        let name = common::file_name(&path);
+        self.toasts.success(if crate::platform::IS_ANDROID { format!("Saved {name} to your gallery") } else { format!("Downloaded {name}") });
+      },
       Event::Toast { error, message } => {
         if error {
           self.toasts.error(message);
@@ -417,7 +429,7 @@ impl ArtcraftApp {
         self.characters_modal = Some(CharactersModal::new());
       },
       AppRequest::PlayExternally(url) => {
-        if let Err(err) = open::that(&url) {
+        if let Err(err) = crate::platform::open_url(&url) {
           self.toasts.error(format!("Couldn't open the file: {err}"));
         }
       },
@@ -454,12 +466,12 @@ impl ArtcraftApp {
       [] => {},
       [item] => {
         let name = file_name_for(item);
-        if let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() {
+        if let Some(path) = crate::platform::save_target(&name) {
           self.backend.save_url(item.full_url.clone(), path);
         }
       },
       many => {
-        if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+        if let Some(dir) = crate::platform::save_folder() {
           for item in many {
             self.backend.save_url(item.full_url.clone(), dir.join(file_name_for(item)));
           }
@@ -578,10 +590,17 @@ impl ArtcraftApp {
     egui::Panel::top("titlebar").exact_size(shell::TITLEBAR_HEIGHT).resizable(false).frame(chrome).show(ui, |ui| {
       actions.extend(shell::titlebar(ui, &account, &mark));
     });
-    if self.sidebar_open {
+    self.compact = shell::is_compact(ui.ctx());
+    if self.sidebar_open && !self.compact {
       egui::Panel::left("sidebar").exact_size(shell::SIDEBAR_WIDTH).resizable(false).frame(chrome).show(ui, |ui| {
         actions.extend(shell::sidebar(ui, self.page, &account));
       });
+    } else if self.sidebar_open {
+      let (floating, dismissed) = shell::floating_sidebar(ui.ctx(), self.page, &account);
+      actions.extend(floating);
+      if dismissed {
+        self.sidebar_open = false;
+      }
     }
     for action in actions {
       self.apply_shell_action(action);
@@ -590,7 +609,12 @@ impl ArtcraftApp {
 
   fn apply_shell_action(&mut self, action: ShellAction) {
     match action {
-      ShellAction::Navigate(page) => self.navigate(page),
+      ShellAction::Navigate(page) => {
+        self.navigate(page);
+        if self.compact {
+          self.sidebar_open = false;
+        }
+      },
       ShellAction::ToggleSidebar => self.sidebar_open = !self.sidebar_open,
       ShellAction::SignIn => self.open_login(),
       ShellAction::SignOut => {
@@ -615,7 +639,7 @@ impl ArtcraftApp {
   fn page_ui(&mut self, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let gap = shell::PANEL_GAP;
-    let margin = egui::Margin { left: if self.sidebar_open { 0 } else { gap }, right: gap, top: 0, bottom: gap };
+    let margin = egui::Margin { left: if self.sidebar_open && !self.compact { 0 } else { gap }, right: gap, top: 0, bottom: gap };
     // Only feeds with videos offer the preview autoplay toggle.
     let toggles = self.page_feed().map(|key| FeedToggles { mode: self.view_mode, selecting: self.feed(key).selecting, autoplay: matches!(key, FeedKey::Video | FeedKey::Library).then_some(self.autoplay) });
     let mut header_action = None;
@@ -852,7 +876,7 @@ impl ArtcraftApp {
       },
       LightboxAction::CopyPrompt(text) => self.handle_request(ctx, AppRequest::CopyText(text)),
       LightboxAction::Play(url) => {
-        if let Err(err) = open::that(&url) {
+        if let Err(err) = crate::platform::open_url(&url) {
           self.toasts.error(format!("Couldn't open the video: {err}"));
         }
       },

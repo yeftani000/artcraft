@@ -10,7 +10,9 @@ use log::warn;
 use midjourney_client::credentials::cookie_store_has_auth_cookies::cookie_store_has_auth_cookies;
 use midjourney_client::utils::midjourney_browser_profile::MIDJOURNEY_USER_AGENT;
 use url::Url;
+#[cfg(not(target_os = "android"))]
 use wry::raw_window_handle::HasWindowHandle;
+#[cfg(not(target_os = "android"))]
 use wry::{WebContext, WebView, WebViewBuilder};
 
 use crate::backend::providers::Provider;
@@ -140,6 +142,7 @@ fn account_row(ui: &mut Ui, label: &str, detail: &str, button: impl FnOnce(&mut 
 
 /// The Midjourney sign-in window: a webview over a modal, checked every two seconds for the
 /// login cookies (both auth tokens), which it hands back once present.
+#[cfg(not(target_os = "android"))]
 pub struct MidjourneyLogin {
   context: WebContext,
   webview: Option<WebView>,
@@ -153,6 +156,7 @@ pub enum LoginEvent {
   Closed,
 }
 
+#[cfg(not(target_os = "android"))]
 impl MidjourneyLogin {
   /// The window keeps its own browser profile under the data folder.
   pub fn new(data_root: &Path) -> Self {
@@ -232,7 +236,34 @@ impl MidjourneyLogin {
   }
 }
 
+/// Midjourney's sign-in needs an embedded browser window to capture its login cookies, which only
+/// the desktop app has. On Android this just explains that and closes.
+#[cfg(target_os = "android")]
+pub struct MidjourneyLogin;
+
+#[cfg(target_os = "android")]
+impl MidjourneyLogin {
+  pub fn new(_data_root: &Path) -> Self {
+    Self
+  }
+
+  pub fn show<W: ?Sized>(&mut self, ctx: &egui::Context, _window: &W) -> Option<LoginEvent> {
+    let mut closed = false;
+    let dismissed = widgets::modal(ctx, Id::new("midjourney-login"), LOGIN_WIDTH, |ui| {
+      ui.label(widgets::heading("Midjourney isn't available on Android yet", 20.0));
+      ui.add_space(8.0);
+      ui.label(egui::RichText::new("Signing in to Midjourney needs a browser window that only the desktop app has. Image models from ArtCraft and fal work here.").size(13.0).color(theme::MUTED));
+      ui.add_space(16.0);
+      if widgets::button(ui, None, "OK", widgets::Kind::Primary, 0.0, 32.0).clicked() {
+        closed = true;
+      }
+    });
+    (closed || dismissed).then_some(LoginEvent::Closed)
+  }
+}
+
 /// The login cookies, once the page is on Midjourney and both auth tokens are set.
+#[cfg(not(target_os = "android"))]
 fn login_cookies(webview: &WebView) -> Option<CookieStore> {
   let host = webview.url().ok().and_then(|u| Url::parse(&u).ok()).and_then(|u| u.host_str().map(str::to_owned))?;
   log::debug!("The Midjourney sign-in window is on {host}");
@@ -255,6 +286,7 @@ fn login_cookies(webview: &WebView) -> Option<CookieStore> {
   cookie_store_has_auth_cookies(&store).then_some(store)
 }
 
+#[cfg(not(target_os = "android"))]
 fn physical_bounds(rect: Rect, pixels_per_point: f32) -> wry::Rect {
   let r = rect * pixels_per_point;
   wry::Rect { position: wry::dpi::PhysicalPosition::new(r.left().round() as i32, r.top().round() as i32).into(), size: wry::dpi::PhysicalSize::new(r.width().round().max(1.0) as u32, r.height().round().max(1.0) as u32).into() }

@@ -303,6 +303,12 @@ fn drop_target(ui: &mut Ui, props: &PromptBoxProps<'_>, rect: Rect, actions: &mu
 
 /// Ctrl/Cmd+V with an image on the clipboard. egui only forwards text pastes, so this watches for
 /// the V key's release and reads the image itself.
+#[cfg(target_os = "android")]
+fn paste_images(_ui: &mut Ui, _props: &PromptBoxProps<'_>, _actions: &mut Vec<PromptBoxAction>) {
+  // Android has no Ctrl+V; images come in through the file picker or the library.
+}
+
+#[cfg(not(target_os = "android"))]
 fn paste_images(ui: &mut Ui, props: &PromptBoxProps<'_>, actions: &mut Vec<PromptBoxAction>) {
   if props.accepts.is_empty() {
     return;

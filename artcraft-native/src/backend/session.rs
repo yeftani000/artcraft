@@ -12,7 +12,9 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
 /// The Tauri app's identifier: its cookie jar lives in `<cache dir>/<identifier>/.cookies`.
+#[cfg(not(target_os = "android"))]
 const TAURI_APP_IDENTIFIER: &str = "ai.artcraft.app";
+#[cfg(not(target_os = "android"))]
 const TAURI_COOKIES_FILENAME: &str = ".cookies";
 const CREDENTIALS_FILENAME: &str = "native_session.json";
 
@@ -30,9 +32,9 @@ impl Credentials {
   }
 }
 
-/// `~/Artcraft`, shared with the Tauri app (`AppDataRoot`).
+/// `~/Artcraft` on desktop (shared with the Tauri app's `AppDataRoot`); the app's private files on Android.
 pub fn data_root() -> PathBuf {
-  directories::UserDirs::new().map(|d| d.home_dir().to_path_buf()).unwrap_or_else(|| PathBuf::from(".")).join("Artcraft")
+  crate::platform::data_root()
 }
 
 /// The API host from `~/Artcraft/settings/env_configs.json` (production unless it says
@@ -90,6 +92,13 @@ fn credentials_path(root: &Path) -> PathBuf {
 
 /// Reads `session` and `visitor` for the ArtCraft API from the Tauri HTTP plugin's jar: a JSON
 /// array of `cookie_store` cookies (`{"raw_cookie": "...", "domain": {...}, "expires": {...}}`).
+#[cfg(target_os = "android")]
+fn import_tauri_cookies() -> Option<Credentials> {
+  // There is no desktop app on the device to import a login from.
+  None
+}
+
+#[cfg(not(target_os = "android"))]
 fn import_tauri_cookies() -> Option<Credentials> {
   let path = directories::BaseDirs::new()?.cache_dir().join(TAURI_APP_IDENTIFIER).join(TAURI_COOKIES_FILENAME);
   let text = fs::read_to_string(&path).ok()?;

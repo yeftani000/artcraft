@@ -14,6 +14,7 @@ use crate::feed::grid::{self, FeedAction, FeedView, RatioCache, ViewMode};
 use crate::feed::store::FeedStore;
 use crate::feed::types::MediaKind;
 use crate::models::Catalog;
+use crate::platform::{self, FileFilter, PickKey};
 use crate::prompt_box;
 use crate::prompt_box::refs::{ImageSlot, RefKind, RefMedia, RefStatus, References};
 use crate::theme;
@@ -331,22 +332,28 @@ pub fn attach_from_library(refs: &mut References, kind: RefKind, slot: ImageSlot
   }
 }
 
-/// Asks the user for files of `kinds` (`multiple` for decks).
-pub fn pick_files(kinds: &[RefKind], multiple: bool) -> Vec<PathBuf> {
-  let mut dialog = rfd::FileDialog::new();
-  for kind in kinds {
-    let (name, exts): (&str, &[&str]) = match kind {
-      RefKind::Image => ("Images", &["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"]),
-      RefKind::Video => ("Videos (MP4)", &["mp4"]),
-      RefKind::Audio => ("Audio", &["mp3", "wav", "ogg", "flac", "aac", "m4a", "opus"]),
-    };
-    dialog = dialog.add_filter(name, exts);
-  }
-  if multiple {
-    dialog.pick_files().unwrap_or_default()
-  } else {
-    dialog.pick_file().into_iter().collect()
-  }
+/// The file types a picker offers for `kinds`.
+fn filters_for(kinds: &[RefKind]) -> Vec<FileFilter> {
+  kinds
+    .iter()
+    .map(|kind| match kind {
+      RefKind::Image => FileFilter { name: "Images", extensions: &["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"], mime_types: &["image/*"] },
+      RefKind::Video => FileFilter { name: "Videos (MP4)", extensions: &["mp4"], mime_types: &["video/mp4"] },
+      RefKind::Audio => FileFilter { name: "Audio", extensions: &["mp3", "wav", "ogg", "flac", "aac", "m4a", "opus"], mime_types: &["audio/*"] },
+    })
+    .collect()
+}
+
+/// Starts asking the user for files of `kinds` (`multiple` for decks). The choice isn't returned:
+/// on Android the picker is a separate screen the user comes back from, so the page that asked
+/// collects it with [`picked_files`] under the same `key` on a later frame.
+pub fn pick_files(key: PickKey, kinds: &[RefKind], multiple: bool) {
+  platform::request_pick(key, &filters_for(kinds), multiple);
+}
+
+/// What the user chose in earlier [`pick_files`] requests for `key`: one list per finished request.
+pub fn picked_files(key: PickKey) -> Vec<Vec<PathBuf>> {
+  platform::take_picked(key)
 }
 
 pub fn file_name(path: &Path) -> String {

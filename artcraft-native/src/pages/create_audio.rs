@@ -19,6 +19,7 @@ use crate::pages::common::{self, AppRequest, CostState, Env};
 use crate::prompt_box::deck::cover_uv;
 use crate::prompt_box::model_selector::model_selector;
 use crate::prompt_box::pickers;
+use crate::platform::PickKey;
 use crate::prompt_box::refs::{ImageSlot, RefKind, RefMedia, RefStatus, References};
 use crate::prompt_box::{self, DeckMode, PromptBoxAction, PromptBoxProps, PromptBoxState, Slot};
 use crate::theme;
@@ -146,6 +147,16 @@ impl CreateAudioPage {
       for action in row_actions {
         self.row_action(action, env, m);
       }
+      // Files chosen in the picker (on Android the user comes back from a separate screen).
+      for paths in common::picked_files(PickKey::AudioRefs) {
+        self.add_audio(env, m, &paths);
+      }
+      for paths in common::picked_files(PickKey::AudioImage) {
+        if let Some(path) = paths.first() {
+          self.make_room_for_image(env);
+          common::upload_path(env, &mut self.refs, path, RefKind::Image, ImageSlot::Reference);
+        }
+      }
     }
     for action in actions {
       self.handle(action, env, model);
@@ -180,18 +191,14 @@ impl CreateAudioPage {
   fn row_action(&mut self, action: RowAction, env: &mut Env<'_>, m: &ModelInfo) {
     match action {
       RowAction::AddAudio => {
-        let paths = common::pick_files(&[RefKind::Audio], m.audio_refs_max > 1);
-        self.add_audio(env, m, &paths);
+        common::pick_files(PickKey::AudioRefs, &[RefKind::Audio], m.audio_refs_max > 1);
       },
       RowAction::AudioFromLibrary => {
         let max = m.audio_refs_max.saturating_sub(self.refs.audios.len()).max(1);
         env.requests.push(AppRequest::PickFromLibrary { kind: RefKind::Audio, slot: ImageSlot::Reference, max, page: MediaKind::Audio });
       },
       RowAction::AddImage => {
-        if let Some(path) = common::pick_files(&[RefKind::Image], false).first() {
-          self.make_room_for_image(env);
-          common::upload_path(env, &mut self.refs, path, RefKind::Image, ImageSlot::Reference);
-        }
+        common::pick_files(PickKey::AudioImage, &[RefKind::Image], false);
       },
       RowAction::Remove(id) => {
         if env.audio.is_playing(&ref_key(id)) {

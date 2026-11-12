@@ -309,7 +309,7 @@ impl Backend {
         },
       };
       let _ = tx.send(Event::DeviceLogin { url: challenge.verification_url.clone(), code: challenge.confirmation_code.clone() });
-      if let Err(err) = open::that(&challenge.verification_url) {
+      if let Err(err) = crate::platform::open_url(&challenge.verification_url) {
         warn!("Couldn't open the browser: {err}");
       }
       let interval = Duration::from_secs(u64::from(challenge.poll_interval_seconds.max(1)));

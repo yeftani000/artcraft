@@ -172,8 +172,9 @@ pub fn settings_dialog(ctx: &egui::Context, enter_to_generate: &mut bool, userna
     widgets::hud(ui, "About", theme::FAINT);
     ui.add_space(6.0);
     ui.label(egui::RichText::new(format!("ArtCraft native {}", env!("CARGO_PKG_VERSION"))).size(13.0).color(theme::MUTED));
-    if widgets::button(ui, Some(Icon::Folder), "Open data folder", widgets::Kind::Secondary, 0.0, theme::CONTROL_H).clicked() {
-      if let Err(err) = open::that(data_root) {
+    // Android keeps the data in the app's private storage, which no file manager can open.
+    if !crate::platform::IS_ANDROID && widgets::button(ui, Some(Icon::Folder), "Open data folder", widgets::Kind::Secondary, 0.0, theme::CONTROL_H).clicked() {
+      if let Err(err) = crate::platform::reveal_folder(data_root) {
         log::warn!("Couldn't open {}: {err}", data_root.display());
       }
     }

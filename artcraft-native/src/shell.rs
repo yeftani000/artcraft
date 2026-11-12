@@ -138,6 +138,36 @@ pub enum ShellAction {
   ToggleSelect,
 }
 
+/// Below this width (in points) the sidebar floats over the page instead of docking beside it.
+pub const COMPACT_WIDTH: f32 = 720.0;
+
+/// Whether the window is narrow enough (a phone) for the compact layout.
+pub fn is_compact(ctx: &egui::Context) -> bool {
+  ctx.content_rect().width() < COMPACT_WIDTH
+}
+
+/// The sidebar as an overlay under the title bar, over a dimmed scrim. Returns what the user did
+/// and whether they tapped outside it to dismiss it.
+pub fn floating_sidebar(ctx: &egui::Context, page: Page, account: &Account<'_>) -> (Vec<ShellAction>, bool) {
+  let screen = ctx.content_rect();
+  let top = screen.min.y + TITLEBAR_HEIGHT;
+  let mut dismissed = false;
+  egui::Area::new(Id::new("sidebar-scrim")).order(egui::Order::Foreground).fixed_pos(pos2(screen.min.x, top)).show(ctx, |ui| {
+    let (rect, resp) = ui.allocate_exact_size(vec2(screen.width(), screen.max.y - top), Sense::click());
+    ui.painter().rect_filled(rect, 0.0, Color32::from_black_alpha(140));
+    dismissed = resp.clicked();
+  });
+  let mut actions = Vec::new();
+  egui::Area::new(Id::new("sidebar-floating")).order(egui::Order::Foreground).fixed_pos(pos2(screen.min.x, top)).show(ctx, |ui| {
+    let rect = Rect::from_min_size(ui.cursor().min, vec2(SIDEBAR_WIDTH.min(screen.width() - 56.0), screen.max.y - top));
+    ui.painter().rect_filled(rect, 0.0, theme::CHROME);
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+    actions.extend(sidebar(&mut child, page, account));
+    ui.allocate_rect(rect, Sense::hover());
+  });
+  (actions, dismissed)
+}
+
 /// The custom title bar: the ArtCraft mark (home) and the sidebar toggle at the left, the
 /// account and (on Windows and Linux) the caption buttons at the right; the rest drags the window.
 pub fn titlebar(ui: &mut Ui, account: &Account<'_>, mark: &egui::TextureHandle) -> Option<ShellAction> {
